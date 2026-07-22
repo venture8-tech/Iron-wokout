@@ -132,8 +132,24 @@ const PROGRAM={
 PROGRAM[5]=JSON.parse(JSON.stringify(PROGRAM[1]));PROGRAM[6]=JSON.parse(JSON.stringify(PROGRAM[2]));
 const COLORS={push:"var(--rust)",pull:"var(--gold)",legs:"var(--steel)",cardio:"var(--steel)",recover:"var(--muted)"};
 const K={profile:"ir-profile",workout:"ir-workout-log",weight:"ir-weight-log",pro:"ir-pro-state"};
-const load=(k,f)=>{try{return JSON.parse(localStorage.getItem(k))??f}catch{return f}};
-const save=(k,v)=>localStorage.setItem(k,JSON.stringify(v));
+const load=function(k,f){
+  try {
+    var raw=window.localStorage.getItem(k);
+    return raw===null ? f : JSON.parse(raw);
+  } catch(err) {
+    console.warn("Storage read failed:",k,err);
+    return f;
+  }
+};
+const save=function(k,v){
+  try {
+    window.localStorage.setItem(k,JSON.stringify(v));
+    return true;
+  } catch(err) {
+    console.warn("Storage write failed:",k,err);
+    return false;
+  }
+};
 const iso=d=>{const x=new Date(d);x.setMinutes(x.getMinutes()-x.getTimezoneOffset());return x.toISOString().slice(0,10)};
 const today=()=>iso(new Date());
 let state={
@@ -286,7 +302,9 @@ function onboarding(){return`<main class="app safe" style="display:flex;min-heig
  <p style="color:var(--muted);line-height:1.6">A private, mobile-first workout tracker that lives in Safari.</p>
  <div class="field"><label>Your name</label><input id="obName" placeholder="Oscar"></div>
  <div class="field"><label>Starting weight (optional)</label><input id="obWeight" type="number" step=".1"></div>
- <button class="btn primary" data-a="onboard">Enter the runway</button></div></main>`
+ <button class="btn primary" id="enterRunwayButton" type="button" data-a="onboard">Enter the runway</button>
+ <div id="onboardError" style="display:none;color:var(--red);font-size:13px;margin-top:12px"></div>
+ </div></main>`
 }
 function confetti(){return`<div class="confetti">${Array.from({length:24},(_,i)=>`<i style="left:${(i*41)%100}%;animation-delay:${(i%7)*.05}s;transform:rotate(${i*27}deg)"></i>`).join("")}</div>`}
 function bind(){
@@ -304,13 +322,52 @@ function bind(){
   if(a==="close"){state.modal=null;render()}
   if(a==="save-settings"){state.profile.name=document.getElementById("setName").value.trim()||state.profile.name;state.pro.restDefault=+document.getElementById("setRest").value;save(K.profile,state.profile);persist();state.modal=null;toast("Settings saved")}
   if(a==="save-weight"){const d=document.getElementById("wDate").value,v=parseFloat(document.getElementById("wVal").value);if(d&&!isNaN(v)){state.weights[d]=v;persist();state.modal=null;toast("Weight logged")}}
-  if(a==="onboard"){const n=document.getElementById("obName").value.trim();if(!n)return;state.profile={name:n,createdAt:today()};const w=parseFloat(document.getElementById("obWeight").value);if(!isNaN(w))state.weights[today()]=w;save(K.profile,state.profile);persist();render()}
+  if(a==="onboard"){
+    var nameInput=document.getElementById("obName");
+    var weightInput=document.getElementById("obWeight");
+    var n=nameInput ? nameInput.value.trim() : "";
+    if(!n){
+      toast("Enter your name first");
+      return;
+    }
+    state.profile={name:n,createdAt:today()};
+    var w=weightInput ? parseFloat(weightInput.value) : NaN;
+    if(!isNaN(w)) state.weights[today()]=w;
+    save(K.profile,state.profile);
+    persist();
+    state.tab="workout";
+    state.modal=null;
+    render();
+  }
   if(a==="export")exportData()
   if(a==="import")document.getElementById("importFile").click()
  });
  document.querySelectorAll("[data-note]").forEach(el=>el.oninput=()=>{state.pro.notes[el.dataset.note]=el.value;persist()});
  document.querySelectorAll("[data-detail]").forEach(el=>el.oninput=()=>{const k=el.dataset.detail;state.pro.details[k]=state.pro.details[k]||{};state.pro.details[k][el.dataset.field]=el.value;persist()});
- const f=document.getElementById("importFile");if(f)f.onchange=importData
+ const f=document.getElementById("importFile");if(f)f.onchange=importData;
+
+ var enterButton=document.getElementById("enterRunwayButton");
+ if(enterButton && !enterButton.dataset.directBound){
+   enterButton.dataset.directBound="1";
+   enterButton.addEventListener("touchend",function(ev){
+     ev.preventDefault();
+     var nameInput=document.getElementById("obName");
+     var weightInput=document.getElementById("obWeight");
+     var n=nameInput ? nameInput.value.trim() : "";
+     if(!n){
+       var err=document.getElementById("onboardError");
+       if(err){err.textContent="Please enter your name.";err.style.display="block";}
+       return;
+     }
+     state.profile={name:n,createdAt:today()};
+     var w=weightInput ? parseFloat(weightInput.value) : NaN;
+     if(!isNaN(w)) state.weights[today()]=w;
+     save(K.profile,state.profile);
+     persist();
+     state.tab="workout";
+     render();
+   },{passive:false});
+ }
 }
 function exportData(){
  const blob=new Blob([JSON.stringify({version:2,profile:state.profile,workout:state.workout,weights:state.weights,pro:state.pro},null,2)],{type:"application/json"});
@@ -319,6 +376,14 @@ function exportData(){
 function importData(ev){
  const file=ev.target.files[0];if(!file)return;const r=new FileReader();r.onload=()=>{try{const x=JSON.parse(r.result);state.profile=x.profile||state.profile;state.workout=x.workout||{};state.weights=x.weights||{};state.pro=x.pro||state.pro;save(K.profile,state.profile);persist();toast("Backup restored")}catch{toast("Could not import file")}};r.readAsText(file)
 }
+window.addEventListener("error",function(event){
+  console.error(event.error||event.message);
+  var errorBox=document.getElementById("onboardError");
+  if(errorBox){
+    errorBox.textContent="The app hit an error. Reload once, then try again.";
+    errorBox.style.display="block";
+  }
+});
 render();
 </script>
 </body>
